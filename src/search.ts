@@ -1,6 +1,6 @@
 import type { Page } from "playwright-core"
 import { setTimeout as sleep } from "node:timers/promises"
-import { browser, exclusive, touch } from "./chrome"
+import { blocked, browser, exclusive, markBlocked, touch } from "./chrome"
 import { extractSerp } from "./extract"
 
 export type SearchOptions = {
@@ -15,7 +15,7 @@ export type SearchOptions = {
 }
 
 export const CAPTCHA =
-	"Google answered with a CAPTCHA. Run `bun run open` in the serp-mcp folder, solve it in the window that opens, close the window, then retry."
+	"Google answered with a CAPTCHA, so searches are paused for an hour. Run `bun run open` in the serp-mcp folder, solve it in the window that opens, close the window, then retry."
 
 // Google's "uule" parameter takes a canonical location name from Google Ads geotargets, e.g. "Paris,Ile-de-France,France".
 const KEY = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
@@ -41,7 +41,10 @@ async function rejectCookies(page: Page) {
 async function load(page: Page, url: string) {
 	await page.goto(url, { waitUntil: "domcontentloaded" })
 	if (page.url().includes("consent.google.")) await rejectCookies(page)
-	if (page.url().includes("/sorry/")) throw new Error(CAPTCHA)
+	if (page.url().includes("/sorry/")) {
+		markBlocked()
+		throw new Error(CAPTCHA)
+	}
 	await page.waitForSelector("#search, #botstuff", { state: "attached", timeout: 15_000 })
 	// The AI Overview streams in after the results: wait until its text stops growing.
 	let last = -1
@@ -65,6 +68,19 @@ async function expandQuestions(page: Page, count: number) {
 	}
 }
 
+// Operator queries are the ones Google watches most for scraping: they get a longer pause.
+const OPERATOR = /(^|\s)-?(site|inurl|allinurl|intitle|allintitle|intext|filetype|related|before|after):/i
+
+// Google drops part of an operator query for clients it does not trust, without saying so.
+function siteWarning(query: string, organic: { displayed_url: string }[]) {
+	const site = query.match(/(?:^|\s)site:(?:https?:\/\/)?(?:www\.)?([^\s/]+)/i)?.[1]?.toLowerCase()
+	if (!site || organic.length === 0) return undefined
+	const host = (r: { displayed_url: string }) => r.displayed_url.replace(/^https?:\/\//, "").split(/[\s›/]/)[0]!.toLowerCase()
+	const on = organic.filter((r) => host(r) === site || host(r).endsWith(`.${site}`)).length
+	if (on >= organic.length / 2) return undefined
+	return `Google ignored the site: operator (${on} of ${organic.length} results on ${site}). Treat these results as unreliable. Signing the serp-mcp profile in to a Google account (bun run open) makes Google trust it.`
+}
+
 // Google hides result URLs behind /goto redirects. Each one answers a 302 to the real URL, read without following it.
 async function resolveUrls<T>(page: Page, data: T): Promise<T> {
 	const json = JSON.stringify(data)
@@ -83,6 +99,7 @@ async function resolveUrls<T>(page: Page, data: T): Promise<T> {
 }
 
 export function search(o: SearchOptions) {
+	if (blocked()) throw new Error(CAPTCHA)
 	return exclusive(async () => {
 		touch()
 		const page = await (await browser()).contexts()[0]!.newPage()
@@ -98,11 +115,12 @@ export function search(o: SearchOptions) {
 				const { organic } = await page.evaluate(extractSerp)
 				serp.organic.push(...organic.map((r) => ({ ...r, position: serp.organic.length + r.position })))
 			}
-			const result = { query: o.query, country: o.country ?? "us", language: o.language ?? "en", location: o.location, url, ...serp, page_text: pageText }
+			const warning = siteWarning(o.query, serp.organic)
+			const result = { query: o.query, country: o.country ?? "us", language: o.language ?? "en", location: o.location, url, warning, ...serp, page_text: pageText }
 			return o.resolveUrls === false ? result : await resolveUrls(page, result)
 		} finally {
 			await page.close().catch(() => {})
 			touch()
 		}
-	})
+	}, OPERATOR.test(o.query) ? 8000 : 2000)
 }

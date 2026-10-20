@@ -94,15 +94,17 @@ bun run search "best crm for startups" --country us --language en --pages 2 --pa
 - Headless Chrome announces itself in its user agent, which Google answers with a CAPTCHA. serp-mcp sends the normal Chrome user agent instead.
 - The parser runs inside the page. Google's class names are obfuscated and change often, so it relies on ids, accessibility attributes and the few semantic class names Google keeps (`related-question-pair`, `#m-x-content`, `data-text-ad`).
 
-## CAPTCHA and cookie banner
+## Google sign-in, CAPTCHA and cookie banner
 
-If Google shows a CAPTCHA, the tool returns an error that says so. Open the profile in a visible window, solve it, and close the window:
+Google trusts an anonymous profile less than a signed-in one. Plain queries come back the same as in a normal browser, but operator queries (`site:`, `inurl:`...) are often half applied: Google silently drops the `site:` or the keywords. When a `site:` query comes back mostly off-site, the result carries a `warning`. Operator queries also get a longer pause (8 to 16 seconds), and a burst of them is what leads to a CAPTCHA.
+
+For reliable operator queries, sign the profile in to a Google account, preferably a dedicated one with Web & App Activity turned off so results are not personalized. Open the profile in a visible window, sign in (or solve the CAPTCHA), and close the window:
 
 ```bash
 bun run open
 ```
 
-The cookie banner shown in Europe is refused automatically. `bun run stop` closes the background Chrome.
+After a CAPTCHA, the tool refuses searches for an hour instead of hitting Google again, which would deepen the block. `bun run open` lifts the pause. The cookie banner shown in Europe is refused automatically. `bun run stop` closes the background Chrome.
 
 ## Settings
 

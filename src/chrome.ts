@@ -35,6 +35,9 @@ function userAgent(chrome: string) {
 	return `Mozilla/5.0 (${os}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`
 }
 
+// Headless Chrome reports an 800x600 screen behind its 1440x900 window, an impossible pair that bot checks look for.
+const SCREEN = platform() === "darwin" ? "{0,0 3456x2234 devicePixelRatio=2 workAreaTop=74}" : "{0,0 1920x1080}"
+
 let child: ChildProcess | undefined
 let connecting: Promise<Browser> | undefined
 let idle: ReturnType<typeof setTimeout> | undefined
@@ -52,7 +55,7 @@ function launch(headless: boolean, url?: string) {
 		"--password-store=basic",
 		"--window-size=1440,900",
 		`--user-agent=${userAgent(chrome)}`,
-		...(headless ? ["--headless"] : []),
+		...(headless ? ["--headless", `--screen-info=${SCREEN}`] : []),
 		...(url ? [url] : []),
 	]
 	return spawn(chrome, args, { stdio: "ignore" })
@@ -101,9 +104,15 @@ export async function closeChrome() {
 	return true
 }
 
-// Opens the same profile in a visible window, to solve a CAPTCHA or answer the cookie banner once.
+// After a CAPTCHA, searches stop for an hour instead of hitting Google again, which would deepen the block.
+const BLOCKED = join(HOME, "blocked")
+export const blocked = () => Date.now() - (statSync(BLOCKED, { throwIfNoEntry: false })?.mtimeMs ?? 0) < 60 * 60_000
+export const markBlocked = () => writeFileSync(BLOCKED, "")
+
+// Opens the same profile in a visible window, to solve a CAPTCHA, sign in to Google or answer the cookie banner.
 export async function openVisible() {
 	await closeChrome()
+	rmSync(BLOCKED, { force: true })
 	const visible = launch(false, "https://www.google.com/search?q=google")
 	await new Promise((resolve) => visible.on("exit", resolve))
 }
@@ -112,7 +121,7 @@ export async function openVisible() {
 const LOCK = join(HOME, "search.lock")
 const LAST = join(HOME, "last-search")
 
-export async function exclusive<T>(fn: () => Promise<T>) {
+export async function exclusive<T>(fn: () => Promise<T>, pause = 2000) {
 	mkdirSync(HOME, { recursive: true })
 	for (;;) {
 		try {
@@ -126,7 +135,7 @@ export async function exclusive<T>(fn: () => Promise<T>) {
 	}
 	try {
 		const last = statSync(LAST, { throwIfNoEntry: false })?.mtimeMs ?? 0
-		await sleep(Math.max(0, last + 2000 + Math.random() * 2000 - Date.now()))
+		await sleep(Math.max(0, last + pause + Math.random() * pause - Date.now()))
 		return await fn()
 	} finally {
 		if (existsSync(LAST)) utimesSync(LAST, new Date(), new Date())
