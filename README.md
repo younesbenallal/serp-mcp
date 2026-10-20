@@ -119,6 +119,10 @@ Environment variables, all optional:
 - Google changes its markup. When a part goes missing, `include_page_text` still returns everything visible, and `src/extract.ts` is the only file to fix.
 - Results follow the machine's connection. A VPN or a `location` changes them.
 
+## About
+
+Built by Younès Benallal at [Holly&Stick](https://www.holly-and-stick.com/), an SEO partner for early-stage B2B SaaS.
+
 ## License
 
 MIT
