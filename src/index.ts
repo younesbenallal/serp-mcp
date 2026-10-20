@@ -37,7 +37,7 @@ if (command === "search") {
 	console.log(JSON.stringify(result, null, 2))
 	process.exit(0)
 } else if (command === "open") {
-	console.log("Chrome is open with the serp-mcp profile. Solve the CAPTCHA or cookie banner if any, then close the window.")
+	console.log("Chrome is open with the serp-mcp profile. Sign in to Google or solve the CAPTCHA if needed, then close the window.")
 	await openVisible()
 	process.exit(0)
 } else if (command === "stop") {

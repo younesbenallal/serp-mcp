@@ -62,8 +62,14 @@ function launch(headless: boolean, url?: string) {
 }
 
 async function connect() {
-	const existing = await chromium.connectOverCDP(ENDPOINT).catch(() => null)
-	if (existing) return existing
+	const running = await fetch(`${ENDPOINT}/json/version`).then(
+		() => true,
+		() => false,
+	)
+	if (running)
+		return chromium.connectOverCDP(ENDPOINT).catch(() => {
+			throw new Error(`Could not drive the Chrome on port ${PORT}. If its window is open (bun run open), close it with Cmd+Q, then retry.`)
+		})
 	child = launch(true)
 	for (let i = 0; i < 60; i++) {
 		await sleep(250)
@@ -114,7 +120,18 @@ export async function openVisible() {
 	await closeChrome()
 	rmSync(BLOCKED, { force: true })
 	const visible = launch(false, "https://www.google.com/search?q=google")
+	// On macOS, Chrome keeps running after its last window closes: quit it then, so searches go back to headless.
+	let opened = false
+	const watch = setInterval(async () => {
+		const targets = await fetch(`${ENDPOINT}/json/list`)
+			.then((r) => r.json() as Promise<{ type: string }[]>)
+			.catch(() => null)
+		const pages = targets?.some((t) => t.type === "page")
+		if (pages) opened = true
+		else if (targets && opened) visible.kill()
+	}, 1000)
 	await new Promise((resolve) => visible.on("exit", resolve))
+	clearInterval(watch)
 }
 
 // One search at a time on the machine, with a pause between searches, whatever the number of server processes.
